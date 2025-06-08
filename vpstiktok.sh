@@ -5,16 +5,28 @@ set -e
 echo "==== TikTok Video Host VPS Setup ===="
 
 # 1. Install Apache, PHP, FFmpeg
-echo "[1/6] Installing Apache, PHP, FFmpeg..."
+echo "[1/7] Installing Apache, PHP, FFmpeg..."
 sudo apt update
 sudo apt install -y apache2 php libapache2-mod-php ffmpeg
 
-# 2. Create 'videos' folder in web root
-echo "[2/6] Creating /var/www/html/videos..."
+# 2. Configure PHP upload_max_filesize and post_max_size to 500M
+echo "[2/7] Setting PHP upload_max_filesize and post_max_size to 500M..."
+PHPINI=$(php -r 'echo php_ini_loaded_file();')
+if [ -z "$PHPINI" ]; then
+    PHPINI="/etc/php/$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')/apache2/php.ini"
+fi
+sudo sed -i 's/^upload_max_filesize\s*=.*/upload_max_filesize = 500M/' "$PHPINI"
+sudo sed -i 's/^post_max_size\s*=.*/post_max_size = 500M/' "$PHPINI"
+sudo sed -i 's/^max_execution_time\s*=.*/max_execution_time = 600/' "$PHPINI"
+sudo systemctl restart apache2
+
+# 3. Create 'videos' folder in web root
+echo "[3/7] Creating /var/www/html/videos..."
 sudo mkdir -p /var/www/html/videos
 sudo chmod 777 /var/www/html/videos
+sudo chown -R www-data:www-data /var/www/html/videos
 
-# 3. Deploy PHP files
+# 4. Deploy PHP files
 
 cd /var/www/html
 
@@ -28,7 +40,7 @@ sudo tee admin.php > /dev/null <<'EOF'
 <body>
     <h2>Upload Video</h2>
     <form action="upload.php" method="post" enctype="multipart/form-data">
-        Select video to upload:<br>
+        Select video to upload (max 500MB):<br>
         <input type="file" name="video" accept="video/*" required><br><br>
         <input type="submit" value="Upload Video">
     </form>
@@ -59,6 +71,12 @@ $videoFileType = strtolower(pathinfo($target_file,PATHINFO_EXTENSION));
 $allowed = array('mp4','mov','webm','avi','mkv');
 if(!in_array($videoFileType, $allowed)){
     echo "Sorry, only mp4, mov, webm, avi, mkv files are allowed.";
+    $uploadOk = 0;
+}
+
+// Limit file size to 500MB
+if ($_FILES["video"]["size"] > 524288000) {
+    echo "Sorry, your file is too large. Max allowed size is 500MB.";
     $uploadOk = 0;
 }
 
@@ -97,18 +115,18 @@ echo json_encode(array_values($videos));
 ?>
 EOF
 
-# 4. Set permissions
-echo "[4/6] Setting permissions..."
+# 5. Set permissions
+echo "[5/7] Setting permissions..."
 sudo chown -R www-data:www-data /var/www/html/
 sudo chmod -R 755 /var/www/html/
 sudo chmod 777 /var/www/html/videos
 
-# 5. Restart Apache
-echo "[5/6] Restarting Apache..."
+# 6. Restart Apache
+echo "[6/7] Restarting Apache..."
 sudo systemctl restart apache2
 
-# 6. Print info
-echo "[6/6] Setup complete!"
+# 7. Print info
+echo "[7/7] Setup complete!"
 echo "--------------------------------------"
 echo "Admin panel:   http://YOUR_SERVER_IP/admin.php"
 echo "Video upload:  http://YOUR_SERVER_IP/upload.php"
