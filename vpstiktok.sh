@@ -2,31 +2,30 @@
 
 set -e
 
-echo "==== TikTok Video Host VPS Setup ===="
+echo "==== TikTok Video Host VPS Setup (Auto PHP Config) ===="
 
 # 1. Install Apache, PHP, FFmpeg
 echo "[1/7] Installing Apache, PHP, FFmpeg..."
 sudo apt update
 sudo apt install -y apache2 php libapache2-mod-php ffmpeg
 
-# 2. Configure PHP upload_max_filesize and post_max_size to 500M
-echo "[2/7] Setting PHP upload_max_filesize and post_max_size to 500M..."
-PHPINI=$(php -r 'echo php_ini_loaded_file();')
-if [ -z "$PHPINI" ]; then
-    PHPINI="/etc/php/$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')/apache2/php.ini"
-fi
+# 2. Find PHP version and set PHP INI location
+PHPVER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')
+PHPINI="/etc/php/${PHPVER}/apache2/php.ini"
+echo "[2/7] Setting PHP config in $PHPINI"
+
+# 3. Configure PHP upload_max_filesize and post_max_size to 500M
 sudo sed -i 's/^upload_max_filesize\s*=.*/upload_max_filesize = 500M/' "$PHPINI"
 sudo sed -i 's/^post_max_size\s*=.*/post_max_size = 500M/' "$PHPINI"
 sudo sed -i 's/^max_execution_time\s*=.*/max_execution_time = 600/' "$PHPINI"
-sudo systemctl restart apache2
 
-# 3. Create 'videos' folder in web root
+# 4. Create 'videos' folder in web root
 echo "[3/7] Creating /var/www/html/videos..."
 sudo mkdir -p /var/www/html/videos
 sudo chmod 777 /var/www/html/videos
 sudo chown -R www-data:www-data /var/www/html/videos
 
-# 4. Deploy PHP files
+# 5. Deploy PHP files
 
 cd /var/www/html
 
@@ -65,7 +64,7 @@ $target_dir = "videos/";
 $original_name = basename($_FILES["video"]["name"]);
 $target_file = $target_dir . time() . "_" . preg_replace('/[^a-zA-Z0-9_\-\.]/','_', $original_name);
 $uploadOk = 1;
-$videoFileType = strtolower(pathinfo($target_file,PATHINFO_EXTENSION));
+$videoFileType = strtolower(pathinfo($target_file, PATHINFO_EXTENSION));
 
 // Check video file type
 $allowed = array('mp4','mov','webm','avi','mkv');
@@ -115,18 +114,17 @@ echo json_encode(array_values($videos));
 ?>
 EOF
 
-# 5. Set permissions
-echo "[5/7] Setting permissions..."
+# 6. Set permissions
+echo "[6/7] Setting permissions..."
 sudo chown -R www-data:www-data /var/www/html/
 sudo chmod -R 755 /var/www/html/
 sudo chmod 777 /var/www/html/videos
 
-# 6. Restart Apache
-echo "[6/7] Restarting Apache..."
+# 7. Restart Apache
+echo "[7/7] Restarting Apache..."
 sudo systemctl restart apache2
 
-# 7. Print info
-echo "[7/7] Setup complete!"
+# Info
 echo "--------------------------------------"
 echo "Admin panel:   http://YOUR_SERVER_IP/admin.php"
 echo "Video upload:  http://YOUR_SERVER_IP/upload.php"
@@ -135,5 +133,4 @@ echo "Videos dir:    /var/www/html/videos/"
 echo "--------------------------------------"
 echo "Upload videos from the admin panel."
 echo "If you want HTTPS, set up SSL (e.g., with Let's Encrypt)."
-
 echo "==== ALL DONE ===="
