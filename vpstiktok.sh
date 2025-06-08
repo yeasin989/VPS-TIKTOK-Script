@@ -2,57 +2,236 @@
 
 set -e
 
-echo "==== TikTok Video Host VPS Setup (Auto PHP Config) ===="
+# Find external IP
+YOUR_SERVER_IP=$(curl -s https://api.ipify.org)
 
-# 1. Install Apache, PHP, FFmpeg
-echo "[1/7] Installing Apache, PHP, FFmpeg..."
+echo "==== TikTok Video Host VPS Setup (Pro Admin Panel) ===="
+
 sudo apt update
 sudo apt install -y apache2 php libapache2-mod-php ffmpeg
 
-# 2. Find PHP version and set PHP INI location
 PHPVER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')
 PHPINI="/etc/php/${PHPVER}/apache2/php.ini"
-echo "[2/7] Setting PHP config in $PHPINI"
-
-# 3. Configure PHP upload_max_filesize and post_max_size to 500M
 sudo sed -i 's/^upload_max_filesize\s*=.*/upload_max_filesize = 500M/' "$PHPINI"
 sudo sed -i 's/^post_max_size\s*=.*/post_max_size = 500M/' "$PHPINI"
 sudo sed -i 's/^max_execution_time\s*=.*/max_execution_time = 600/' "$PHPINI"
+sudo systemctl restart apache2
 
-# 4. Create 'videos' folder in web root
-echo "[3/7] Creating /var/www/html/videos..."
 sudo mkdir -p /var/www/html/videos
 sudo chmod 777 /var/www/html/videos
 sudo chown -R www-data:www-data /var/www/html/videos
-
-# 5. Deploy PHP files
 
 cd /var/www/html
 
 # admin.php
 sudo tee admin.php > /dev/null <<'EOF'
+<?php
+function human_filesize($bytes, $decimals = 2) {
+  $size = array('B','KB','MB','GB','TB','PB');
+  $factor = floor((strlen($bytes) - 1) / 3);
+  return sprintf("%.{$decimals}f", $bytes / pow(1024, $factor)) . @$size[$factor];
+}
+?>
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Video Upload Admin</title>
+    <meta charset="UTF-8">
+    <title>Video Admin | TikTok Host</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://fonts.googleapis.com/css?family=Roboto:500,700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            background: #181A20;
+            font-family: 'Roboto', Arial, sans-serif;
+            color: #f1f1f1;
+        }
+        .container {
+            max-width: 620px;
+            margin: 40px auto 30px auto;
+            background: #23242b;
+            border-radius: 18px;
+            box-shadow: 0 0 20px #0007;
+            padding: 36px 28px 22px 28px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 18px;
+            font-weight: 700;
+            font-size: 2.2em;
+            color: #16fff8;
+            letter-spacing: 1px;
+        }
+        .success, .error {
+            padding: 10px 0;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 1.07em;
+        }
+        .success {background: #08d9b6; color: #181A20;}
+        .error   {background: #f14545; color: #fff;}
+        .upload-form {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            background: #222429;
+            border-radius: 12px;
+            padding: 18px 14px;
+            margin-bottom: 26px;
+        }
+        .upload-form label {
+            min-width: 85px;
+            font-size: 1em;
+            color: #b3b3c3;
+        }
+        .upload-form input[type="file"], .upload-form input[type="text"] {
+            flex: 1;
+            background: #222429;
+            color: #eee;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 8px;
+            font-size: 1em;
+        }
+        .upload-form input[type="submit"] {
+            background: linear-gradient(90deg, #16fff8 0%, #1289a7 100%);
+            color: #23242b;
+            font-weight: bold;
+            border: none;
+            border-radius: 6px;
+            padding: 9px 22px;
+            cursor: pointer;
+            font-size: 1.08em;
+            transition: background 0.18s;
+            margin-top: 5px;
+        }
+        .upload-form input[type="submit"]:hover {
+            background: linear-gradient(90deg, #1289a7 0%, #16fff8 100%);
+            color: #fff;
+        }
+        .videos-list {
+            margin: 20px 0 0 0;
+        }
+        .videos-list li {
+            background: #181A20;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 11px 12px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 10px #0004;
+            transition: background 0.13s;
+        }
+        .videos-list li:hover { background: #23242b;}
+        .vid-info {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 13px;
+        }
+        .vid-title {
+            font-size: 1.06em;
+            color: #16fff8;
+            font-weight: 500;
+            margin-right: 10px;
+        }
+        .vid-size {
+            color: #c2f6ef;
+            font-size: 0.95em;
+            font-family: monospace;
+            opacity: 0.7;
+        }
+        .vid-link {
+            color: #8ad7ef;
+            text-decoration: underline;
+            font-size: 0.97em;
+        }
+        .delete-btn {
+            color: #f14545;
+            background: none;
+            border: none;
+            font-size: 1.45em;
+            margin-left: 14px;
+            cursor: pointer;
+            transition: color 0.13s;
+        }
+        .delete-btn:hover {
+            color: #fff;
+            text-shadow: 0 0 6px #f14545aa;
+        }
+        @media (max-width: 480px) {
+            .container {padding: 12px 3vw;}
+            .upload-form label {font-size: 0.96em;}
+            .vid-title {font-size: 1em;}
+        }
+        a.info-link {
+            display: inline-block;
+            margin: 12px auto 0 auto;
+            color: #aafaf2;
+            background: #1a202a;
+            padding: 6px 18px;
+            border-radius: 8px;
+            text-decoration: none;
+            text-align: center;
+            font-size: 1.03em;
+        }
+        a.info-link:hover {background: #23242b;}
+    </style>
 </head>
 <body>
-    <h2>Upload Video</h2>
-    <form action="upload.php" method="post" enctype="multipart/form-data">
-        Select video to upload (max 500MB):<br>
-        <input type="file" name="video" accept="video/*" required><br><br>
+<div class="container">
+    <h1>Video Admin</h1>
+    <?php
+    if (isset($_GET['deleted'])) {
+        echo "<div class='success'>Video deleted!</div>";
+    }
+    if (isset($_GET['error'])) {
+        echo "<div class='error'>Error: File not found or cannot delete.</div>";
+    }
+    if (isset($_GET['uploaded'])) {
+        echo "<div class='success'>Video uploaded successfully!</div>";
+    }
+    ?>
+    <form class="upload-form" action="upload.php" method="post" enctype="multipart/form-data">
+        <label for="title">Title:</label>
+        <input type="text" name="title" id="title" maxlength="50" placeholder="Enter title or leave as filename">
+        <label for="video">Video File:</label>
+        <input type="file" name="video" accept="video/*" required>
         <input type="submit" value="Upload Video">
     </form>
-    <hr>
-    <h3>Uploaded Videos</h3>
-    <ul>
+    <h3 style="margin-top:14px;">Uploaded Videos</h3>
+    <ul class="videos-list">
     <?php
-    $files = array_diff(scandir("videos/"), array('..', '.'));
+    $meta_file = "videos/meta.json";
+    if (file_exists($meta_file)) {
+        $meta = json_decode(file_get_contents($meta_file), true);
+    } else {
+        $meta = [];
+    }
+    $files = array_diff(scandir("videos/"), array('..', '.', 'meta.json'));
     foreach($files as $file) {
-        echo "<li><a href='videos/$file' target='_blank'>$file</a></li>";
+        $filepath = "videos/$file";
+        $size = human_filesize(filesize($filepath));
+        $title = isset($meta[$file]['title']) && $meta[$file]['title'] ? htmlspecialchars($meta[$file]['title']) : $file;
+        echo "<li>
+                <div class='vid-info'>
+                    <span class='vid-title'>{$title}</span>
+                    <span class='vid-size'>{$size}</span>
+                    <a class='vid-link' href='videos/".urlencode($file)."' target='_blank'>View</a>
+                </div>
+                <form method='get' action='delete.php' style='display:inline; margin:0;'>
+                    <input type='hidden' name='file' value='".htmlspecialchars($file)."'>
+                    <button class='delete-btn' title='Delete' onclick=\"return confirm('Delete this video?');\">&#128465;</button>
+                </form>
+              </li>";
     }
     ?>
     </ul>
+    <a class="info-link" href="info.php" target="_blank">Check Server PHP Info</a>
+</div>
 </body>
 </html>
 EOF
@@ -60,8 +239,16 @@ EOF
 # upload.php
 sudo tee upload.php > /dev/null <<'EOF'
 <?php
+function update_title($file, $title) {
+    $meta_file = "videos/meta.json";
+    $meta = file_exists($meta_file) ? json_decode(file_get_contents($meta_file), true) : [];
+    $meta[$file] = ['title' => $title];
+    file_put_contents($meta_file, json_encode($meta, JSON_PRETTY_PRINT));
+}
+
 $target_dir = "videos/";
 $original_name = basename($_FILES["video"]["name"]);
+$video_title = isset($_POST['title']) && trim($_POST['title']) != '' ? trim($_POST['title']) : $original_name;
 $target_file = $target_dir . time() . "_" . preg_replace('/[^a-zA-Z0-9_\-\.]/','_', $original_name);
 $uploadOk = 1;
 $videoFileType = strtolower(pathinfo($target_file, PATHINFO_EXTENSION));
@@ -87,14 +274,43 @@ if ($uploadOk && move_uploaded_file($_FILES["video"]["tmp_name"], $target_file))
     if (file_exists($compressed_file)) {
         unlink($target_file); // Remove original
         rename($compressed_file, $target_file); // Use compressed as main
-        echo "Upload and compression successful.<br>";
-    } else {
-        echo "Upload successful (compression skipped).<br>";
     }
-    echo "<a href='admin.php'>Back</a>";
+    // Store title
+    update_title(basename($target_file), $video_title);
+    header('Location: admin.php?uploaded=1');
+    exit();
 } else {
     echo "Sorry, there was an error uploading your file.";
 }
+?>
+EOF
+
+# delete.php
+sudo tee delete.php > /dev/null <<'EOF'
+<?php
+if (isset($_GET['file'])) {
+    $file = basename($_GET['file']);
+    $videoPath = __DIR__ . '/videos/' . $file;
+    $meta_file = __DIR__ . '/videos/meta.json';
+    if (file_exists($videoPath) && is_file($videoPath)) {
+        unlink($videoPath);
+        // Remove from meta.json
+        if (file_exists($meta_file)) {
+            $meta = json_decode(file_get_contents($meta_file), true);
+            if (isset($meta[$file])) {
+                unset($meta[$file]);
+                file_put_contents($meta_file, json_encode($meta, JSON_PRETTY_PRINT));
+            }
+        }
+        header('Location: admin.php?deleted=1');
+        exit();
+    } else {
+        header('Location: admin.php?error=1');
+        exit();
+    }
+}
+header('Location: admin.php');
+exit();
 ?>
 EOF
 
@@ -102,11 +318,17 @@ EOF
 sudo tee videos.php > /dev/null <<'EOF'
 <?php
 $dir = "videos/";
-$files = array_diff(scandir($dir), array('..', '.'));
+$files = array_diff(scandir($dir), array('..', '.', 'meta.json'));
 $videos = [];
+$meta_file = $dir . "meta.json";
+$meta = file_exists($meta_file) ? json_decode(file_get_contents($meta_file), true) : [];
 foreach($files as $file) {
     if (preg_match('/\.(mp4|mov|webm|avi|mkv)$/i', $file)) {
-        $videos[] = (isset($_SERVER['HTTPS']) ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . "/videos/" . $file;
+        $title = isset($meta[$file]['title']) && $meta[$file]['title'] ? $meta[$file]['title'] : $file;
+        $videos[] = [
+            "url" => (isset($_SERVER['HTTPS']) ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . "/videos/" . $file,
+            "title" => $title
+        ];
     }
 }
 header('Content-Type: application/json');
@@ -114,23 +336,28 @@ echo json_encode(array_values($videos));
 ?>
 EOF
 
-# 6. Set permissions
-echo "[6/7] Setting permissions..."
+# info.php
+sudo tee info.php > /dev/null <<'EOF'
+<?php
+phpinfo();
+?>
+EOF
+
 sudo chown -R www-data:www-data /var/www/html/
 sudo chmod -R 755 /var/www/html/
 sudo chmod 777 /var/www/html/videos
 
-# 7. Restart Apache
-echo "[7/7] Restarting Apache..."
 sudo systemctl restart apache2
 
-# Info
 echo "--------------------------------------"
-echo "Admin panel:   http://YOUR_SERVER_IP/admin.php"
-echo "Video upload:  http://YOUR_SERVER_IP/upload.php"
-echo "Video API:     http://YOUR_SERVER_IP/videos.php"
+echo "Admin panel:   http://$YOUR_SERVER_IP/admin.php"
+echo "Video upload:  http://$YOUR_SERVER_IP/upload.php"
+echo "Video API:     http://$YOUR_SERVER_IP/videos.php"
+echo "Info page:     http://$YOUR_SERVER_IP/info.php"
 echo "Videos dir:    /var/www/html/videos/"
 echo "--------------------------------------"
 echo "Upload videos from the admin panel."
-echo "If you want HTTPS, set up SSL (e.g., with Let's Encrypt)."
+echo "Delete videos with the trash icon."
+echo "Edit title on upload."
+echo "Check server info at info.php."
 echo "==== ALL DONE ===="
